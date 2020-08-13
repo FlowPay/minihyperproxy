@@ -6,26 +6,31 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 )
 
 type ProxyServer struct {
-	ServerName string
-	Port       string
-	Status     string
-	httpServer *http.Server
-	httpMux    *http.ServeMux
-	infoLog    *log.Logger
-	warnLog    *log.Logger
-	errorLog   *log.Logger
-	ProxyMap   map[string]func(w http.ResponseWriter, r *http.Request)
+	ServerName     string
+	Port           string
+	Status         string
+	httpServer     *http.Server
+	httpMux        *http.ServeMux
+	infoLog        *log.Logger
+	warnLog        *log.Logger
+	errorLog       *log.Logger
+	ProxyReference map[string]string
+	ProxyMap       map[string]func(w http.ResponseWriter, r *http.Request)
 }
 
-func NewProxyServer(serverName string, port string, infoLog, warnLog, errorLog *log.Logger) *ProxyServer {
+func NewProxyServer(serverName string, port string) *ProxyServer {
 	s := &ProxyServer{ServerName: serverName,
-		Port:    port,
-		infoLog: infoLog, warnLog: warnLog, errorLog: errorLog,
-		Status:   "Down",
-		ProxyMap: make(map[string]func(w http.ResponseWriter, r *http.Request))}
+		Port:           port,
+		infoLog:        log.New(os.Stdout, serverName+"-INFO: ", log.Ldate|log.Ltime|log.Lshortfile),
+		warnLog:        log.New(os.Stdout, serverName+"-WARN: ", log.Ldate|log.Ltime|log.Lshortfile),
+		errorLog:       log.New(os.Stdout, serverName+"-ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
+		Status:         "Down",
+		ProxyMap:       make(map[string]func(w http.ResponseWriter, r *http.Request)),
+		ProxyReference: make(map[string]string)}
 	s.init()
 	return s
 }
@@ -60,19 +65,25 @@ func (s *ProxyServer) Stop() {
 
 func (s *ProxyServer) NewProxy(route *url.URL, target *url.URL) {
 
-	s.infoLog.Printf("Creating new proxy from %v to %v", route, target)
-	s.ProxyMap[route.RawPath] = func(w http.ResponseWriter, r *http.Request) {
-		s.infoLog.Printf("Proxying request to %v", target)
+	s.infoLog.Printf("Creating new proxy from %v to %v", route.EscapedPath(), target)
+	s.ProxyMap[route.EscapedPath()] = func(w http.ResponseWriter, r *http.Request) {
+		s.infoLog.Printf("Proxying request to %v", target.Host+target.EscapedPath())
 		httputil.NewSingleHostReverseProxy(target).ServeHTTP(w, r)
 	}
-	s.httpMux.HandleFunc(route.RawPath, s.ProxyMap[route.RawPath])
+	s.ProxyReference[route.EscapedPath()] = target.Host + "/" + target.EscapedPath()
+	s.httpMux.HandleFunc(route.EscapedPath(), s.ProxyMap[route.EscapedPath()])
 }
 
 func (s *ProxyServer) DeleteProxy(route *url.URL) {
 	s.infoLog.Printf("Deleting proxy for: %v", route)
-	delete(s.ProxyMap, route.RawPath)
+	delete(s.ProxyReference, route.EscapedPath())
+	delete(s.ProxyMap, route.EscapedPath())
 }
 
 func (s *ProxyServer) Type() string {
 	return "ProxyServer"
+}
+
+func (s *ProxyServer) getProxyMap() map[string]string {
+	return s.ProxyReference
 }
