@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 )
 
 type HopperServer struct {
@@ -35,21 +34,14 @@ func NewHopperServer(serverName string, incomingHopPort string, outgoingHopFirst
 
 func reduceTargetHop(target *url.URL, hop *url.URL) (newTarget *url.URL, newFullRoute *url.URL) {
 
-	host, port := func(x []string) (string, string) {
-		if len(x) == 1 {
-			return strings.ReplaceAll(x[0], ":", ""), ""
-		} else {
-			return strings.ReplaceAll(x[0], ":", ""), x[1]
-		}
-	}(strings.SplitAfterN(target.Host, ":", 2))
-	path := target.Path
 	newTarget = &url.URL{Host: target.Host, Scheme: target.Scheme}
-	newFullRoute = &url.URL{Host: hop.Host, Path: strings.ReplaceAll(host, ".", "") + "-" + port + "/" + path, Scheme: hop.Scheme}
+	newFullRoute = &url.URL{Host: hop.Host, Scheme: hop.Scheme}
 	return
 }
 
 func (h *HopperServer) init(incomingHopPort string) {
 	h.IncomingHopProxy = NewProxyServer("IncomingHopProxy:"+incomingHopPort, incomingHopPort)
+	h.IncomingHopProxy.StartIncomingHopProxy(h.OutgoingHops)
 }
 
 func (h *HopperServer) Serve() {
@@ -79,8 +71,8 @@ func (h *HopperServer) putOutgoingHop(target *url.URL, hop *url.URL) *url.URL {
 	portString := strconv.Itoa(h.latestPort)
 
 	h.OutgoingHops[target.EscapedPath()] = NewProxyServer("OutgoingHopProxy:"+portString, portString)
-	h.OutgoingHops[target.EscapedPath()].NewProxy(&url.URL{Path: "/"}, hop)
-	h.OutgoingHopsReference[target.EscapedPath()] = hop.Host + hop.EscapedPath()
+	h.OutgoingHops[target.EscapedPath()].NewHopperSenderProxy(hop, target)
+	h.OutgoingHopsReference[target.Host] = hop.Host
 	h.latestPort++
 	return target
 }
@@ -94,7 +86,7 @@ func (h *HopperServer) deleteOutgoingHop(target *url.URL) *url.URL {
 func (h *HopperServer) putIncomingHop(target *url.URL, newIncomingRoute *url.URL) *url.URL {
 
 	h.infoLog.Printf("Creating incoming hop from %v to %v", target, newIncomingRoute)
-	h.IncomingHopProxy.NewProxy(newIncomingRoute, target)
+	h.IncomingHopProxy.NewHopperReceiverProxy(newIncomingRoute, target)
 	return target
 }
 

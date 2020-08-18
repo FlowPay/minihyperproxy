@@ -14,17 +14,19 @@ func TestGenerale(t *testing.T) {
 	os.Setenv("PROXY_SERVER", "7052")
 
 	m := NewMinihyperProxy()
-	m.startHopperServer("prova")
 
-	m.AddHop("prova", &url.URL{Host: "google.com", Scheme: "http"}, &url.URL{Host: "localhost:7052", Scheme: "http"})
-	m.ReceiveHop("prova", &url.URL{Host: "google.com", Scheme: "http"}, &url.URL{Host: "localhost:7052", Scheme: "http"})
+	//m.AddHop("prova", &url.URL{Host: "www.google.com", Scheme: "http"}, &url.URL{Host: "localhost:7052", Scheme: "http"})
+	//m.ReceiveHop("prova", &url.URL{Host: "www.google.com", Scheme: "http"}, &url.URL{Host: "localhost:7052", Scheme: "http"})
+	target, err := url.Parse("https://google.com/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.startProxyServer("prova2")
+	m.addProxyRedirect("prova2", &url.URL{Path: "/google", Scheme: "http"}, target)
 
-	fmt.Printf("Incoming hops: %+v\n", m.GetIncomingHops("prova"))
-	fmt.Printf("Outgoing hops: %+v\n", m.GetOutgoingHops("prova"))
+	time.Sleep(5 * time.Second)
 
-	time.Sleep(10 * time.Second)
-
-	resp, err := http.Get("http://localhost:7053")
+	resp, err := http.Get("http://localhost:7052/google")
 	if err != nil {
 		t.Fatal(err)
 	}
