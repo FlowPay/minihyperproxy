@@ -4,14 +4,16 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"strconv"
 )
 
 type MinihyperProxy struct {
-	ErrorLog *log.Logger
-	WarnLog  *log.Logger
-	InfoLog  *log.Logger
-
-	Servers map[string]*Server
+	ErrorLog                   *log.Logger
+	WarnLog                    *log.Logger
+	InfoLog                    *log.Logger
+	latestHopperServerIncoming string
+	latestHopperServerOutgoing string
+	Servers                    map[string]*Server
 }
 
 func NewMinihyperProxy() (m *MinihyperProxy) {
@@ -29,10 +31,30 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func (m *MinihyperProxy) startHopperServer(serverName string) {
-	tempServer := Server(NewHopperServer(serverName, getEnv("HOPPER_SERVER_INCOMING", "7052"), getEnv("HOPPER_SERVER_OUTGOING", "7053")))
+func (m *MinihyperProxy) startHopperServer(serverName string) (incomingPort, outgoingPort string) {
+	if m.latestHopperServerIncoming != "" {
+		incTemp, err := strconv.Atoi(m.latestHopperServerIncoming)
+		if err != nil {
+			m.ErrorLog.Print(err)
+			return "", ""
+		}
+		outTemp, err := strconv.Atoi(m.latestHopperServerOutgoing)
+		if err != nil {
+			m.ErrorLog.Print(err)
+			return "", ""
+		}
+		incTemp += 2
+		outTemp += 2
+		m.latestHopperServerIncoming = strconv.Itoa(incTemp)
+		m.latestHopperServerOutgoing = strconv.Itoa(outTemp)
+	} else {
+		m.latestHopperServerIncoming = getEnv("HOPPER_SERVER_INCOMING", "7052")
+		m.latestHopperServerOutgoing = getEnv("HOPPER_SERVER_OUTGOING", "7053")
+	}
+	tempServer := Server(NewHopperServer(serverName, m.latestHopperServerIncoming, m.latestHopperServerOutgoing))
 	m.Servers[serverName] = &tempServer
 	(*m.Servers[serverName]).Serve()
+	return m.latestHopperServerIncoming, m.latestHopperServerOutgoing
 }
 
 func (m *MinihyperProxy) AddHop(serverName string, target *url.URL, hop *url.URL) {
@@ -59,7 +81,7 @@ func (m *MinihyperProxy) ReceiveHop(serverName string, target *url.URL, hop *url
 	}
 }
 
-func (m *MinihyperProxy) GetOutgoingHops(serverName string) map[string]string {
+func (m *MinihyperProxy) GetOutgoingHops(serverName string) map[string]*url.URL {
 	if s, ok := m.Servers[serverName]; ok {
 		if hopperServer, ok := (*s).(*HopperServer); ok {
 			return hopperServer.getOutgoingHops()
@@ -72,7 +94,7 @@ func (m *MinihyperProxy) GetOutgoingHops(serverName string) map[string]string {
 	return nil
 }
 
-func (m *MinihyperProxy) GetIncomingHops(serverName string) map[string]string {
+func (m *MinihyperProxy) GetIncomingHops(serverName string) map[string]*url.URL {
 	if s, ok := m.Servers[serverName]; ok {
 		if hopperServer, ok := (*s).(*HopperServer); ok {
 			return hopperServer.getIncomingHops()

@@ -2,33 +2,112 @@ package minihyperproxy
 
 //Usare http/url
 import (
+	"context"
 	"log"
+	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type HopperServer struct {
 	errorLog              *log.Logger
 	warnLog               *log.Logger
 	infoLog               *log.Logger
-	latestPort            int
-	OutgoingHopsReference map[string]string
-	OutgoingHops          map[string]*ProxyServer
+	outgoingHopPort       int
+	incomingHopPort       int
+	IncomingHopsReference map[string]*url.URL
+	OutgoingHopsReference map[string]*url.URL
 	IncomingHopProxy      *ProxyServer
+	OutgoingHopProxy      *ProxyServer
 }
 
-func NewHopperServer(serverName string, incomingHopPort string, outgoingHopFirstPort string) *HopperServer {
-	lastestPort, _ := strconv.Atoi(outgoingHopFirstPort)
+func (h *HopperServer) outgoingHopperDirector(req *http.Request) {
+	tempString := strings.SplitAfterN(req.URL.EscapedPath(), "/", 3)
+	targetHost := tempString[1]
+	targetPath := ""
+	if len(tempString) == 3 {
+		targetPath = tempString[2]
+	}
+	if newURL, ok := h.OutgoingHopsReference[targetHost]; ok {
+		if _, ok := req.Header["X-MHP-Target-Host"]; !ok {
+			req.Header.Set("X-MHP-Target-Host", targetHost)
+			if _, ok := req.Header["X-MHP-Target-Scheme"]; !ok {
+				req.Header.Set("X-MHP-Target-Scheme", req.URL.Scheme)
+			}
+			if _, ok := req.Header["X-MHP-Target-Path"]; !ok {
+				req.Header.Set("X-MHP-Target-Path", targetPath)
+			}
+			if _, ok := req.Header["X-MHP-Target-Query"]; !ok {
+				req.Header.Set("X-MHP-Target-Query", req.URL.RawQuery)
+			}
+			if _, ok := req.Header["X-MHP-Forwarded-Host"]; !ok {
+				req.Header.Set("X-MHP-Forwarded-Host", req.Header.Get("Host"))
+			}
+		}
+		if _, ok := req.Header["User-Agent"]; !ok {
+			// explicitly disable User-Agent so it's not set to default value
+			req.Header.Set("User-Agent", "")
+		}
+		req.Header.Set("X-Forwarded-Host", req.Header.Get("X-MHP-Forwarded-Host"))
+		req.URL = newURL
+		req.Host = newURL.Host
+	} else {
+		_, cancel := context.WithCancel(req.Context())
+		cancel()
+	}
+}
 
-	s := &HopperServer{OutgoingHops: make(map[string]*ProxyServer),
-		latestPort:            lastestPort,
+func (h *HopperServer) incomingHopperDirector(req *http.Request) {
+	if req.Header.Get("X-MHP-Target-Host") == "" {
+		_, cancel := context.WithCancel(req.Context())
+		cancel()
+	}
+	targetHost := req.Header.Get("X-MHP-Target-Host")
+	if newURL, ok := h.IncomingHopsReference[targetHost]; ok {
+		if newURL.Host == targetHost {
+			req.Header.Set("X-Forwarded-Host", req.Header.Get("X-MHP-Forwarded-Host"))
+		}
+		req.URL = newURL
+		req.Host = newURL.Host
+	}
+}
+
+func (h *HopperServer) serveOutgoingRequest(rProxy *httputil.ReverseProxy, resp http.ResponseWriter, req *http.Request) {
+	targetHost := strings.SplitAfter(req.URL.EscapedPath(), "/")[1]
+	if _, ok := h.OutgoingHopsReference[targetHost]; !ok {
+		resp.WriteHeader(http.StatusInternalServerError)
+		resp.Write([]byte("500 - Hop not registered for " + targetHost))
+	} else {
+		rProxy.ServeHTTP(resp, req)
+	}
+}
+
+func (h *HopperServer) serveIncomingRequest(rProxy *httputil.ReverseProxy, resp http.ResponseWriter, req *http.Request) {
+	if _, ok := h.IncomingHopsReference[req.Header.Get("X-MHP-Target-Host")]; !ok {
+		resp.WriteHeader(http.StatusInternalServerError)
+		resp.Write([]byte("500 - Hop not registered for " + req.Header.Get("X-MHP-Target-Host")))
+	} else {
+		rProxy.ServeHTTP(resp, req)
+	}
+}
+
+func NewHopperServer(serverName string, incomingHopPort string, outgoingHopPort string) *HopperServer {
+	outgoingHopPortInt, _ := strconv.Atoi(outgoingHopPort)
+	incomingHopPortInt, _ := strconv.Atoi(incomingHopPort)
+
+	s := &HopperServer{
 		infoLog:               log.New(os.Stdout, serverName+"-INFO: ", log.Ldate|log.Ltime|log.Lshortfile),
 		warnLog:               log.New(os.Stdout, serverName+"-WARN: ", log.Ldate|log.Ltime|log.Lshortfile),
 		errorLog:              log.New(os.Stdout, serverName+"-ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
-		OutgoingHopsReference: make(map[string]string)}
+		outgoingHopPort:       outgoingHopPortInt,
+		incomingHopPort:       incomingHopPortInt,
+		OutgoingHopsReference: make(map[string]*url.URL),
+		IncomingHopsReference: make(map[string]*url.URL)}
 
-	s.init(incomingHopPort)
+	s.init(incomingHopPort, outgoingHopPort)
 	return s
 }
 
@@ -39,54 +118,48 @@ func reduceTargetHop(target *url.URL, hop *url.URL) (newTarget *url.URL, newFull
 	return
 }
 
-func (h *HopperServer) init(incomingHopPort string) {
-	h.IncomingHopProxy = NewProxyServer("IncomingHopProxy:"+incomingHopPort, incomingHopPort)
-	h.IncomingHopProxy.StartIncomingHopProxy(h.OutgoingHops)
+func (h *HopperServer) init(incomingHopPort string, outgoingHopPort string) {
+
+	h.IncomingHopProxy = NewProxyServer("IncomingHopProxy: "+incomingHopPort, incomingHopPort)
+	h.OutgoingHopProxy = NewProxyServer("OutgoingHopProxy: "+outgoingHopPort, outgoingHopPort)
+	h.IncomingHopProxy.StartIncomingHopProxy(h.incomingHopperDirector, h.serveIncomingRequest)
+	h.OutgoingHopProxy.StartOutgoingHopProxy(h.outgoingHopperDirector, h.serveOutgoingRequest)
 }
 
 func (h *HopperServer) Serve() {
-	for _, s := range h.OutgoingHops {
-		if s.Status == "Down" {
-			s.Serve()
-		}
-	}
-	if h.IncomingHopProxy.Status == "Down" {
-		h.IncomingHopProxy.Serve()
-	}
+	h.OutgoingHopProxy.Serve()
+	h.IncomingHopProxy.Serve()
 }
 
 func (h *HopperServer) Stop() {
-	for _, s := range h.OutgoingHops {
-		if s.Status == "Down" {
-			s.Stop()
-		}
-	}
-	if h.IncomingHopProxy.Status == "Down" {
-		h.Stop()
-	}
+	h.OutgoingHopProxy.Stop()
+	h.IncomingHopProxy.Stop()
 }
 
 func (h *HopperServer) putOutgoingHop(target *url.URL, hop *url.URL) *url.URL {
-
-	portString := strconv.Itoa(h.latestPort)
-
-	h.OutgoingHops[target.EscapedPath()] = NewProxyServer("OutgoingHopProxy:"+portString, portString)
-	h.OutgoingHops[target.EscapedPath()].NewHopperSenderProxy(hop, target)
-	h.OutgoingHopsReference[target.Host] = hop.Host
-	h.latestPort++
+	h.infoLog.Printf("Creating outgoing hop for %v, hop %v", target, hop)
+	hostname := target.Hostname()
+	h.OutgoingHopsReference[hostname] = hop
+	if val, ok := h.IncomingHopsReference[hostname]; ok && val.Host == hostname {
+		h.IncomingHopsReference[hostname] = hop
+	}
 	return target
 }
 
 func (h *HopperServer) deleteOutgoingHop(target *url.URL) *url.URL {
-	delete(h.OutgoingHops, target.EscapedPath())
-	delete(h.OutgoingHopsReference, target.EscapedPath())
+	h.infoLog.Printf("Deleting hop to %v", target)
+	delete(h.OutgoingHopsReference, target.Hostname())
 	return target
 }
 
-func (h *HopperServer) putIncomingHop(target *url.URL, newIncomingRoute *url.URL) *url.URL {
-
-	h.infoLog.Printf("Creating incoming hop from %v to %v", target, newIncomingRoute)
-	h.IncomingHopProxy.NewHopperReceiverProxy(newIncomingRoute, target)
+func (h *HopperServer) putIncomingHop(target *url.URL) *url.URL {
+	hostname := target.Hostname()
+	h.infoLog.Printf("Creating incoming hop for %v", target)
+	if _, ok := h.OutgoingHopsReference[hostname]; ok {
+		h.IncomingHopsReference[hostname] = &url.URL{Host: "localhost:" + h.OutgoingHopProxy.Port}
+	} else {
+		h.IncomingHopsReference[hostname] = target
+	}
 	return target
 }
 
@@ -94,27 +167,21 @@ func (h *HopperServer) deleteIncomingHop(target *url.URL) *url.URL {
 	h.IncomingHopProxy.DeleteProxy(target)
 	return target
 }
-
-func (h *HopperServer) serveHop(target *url.URL) {
-	h.OutgoingHops[target.EscapedPath()].Serve()
-}
-
 func (h *HopperServer) BuildNewOutgoingHop(target *url.URL, hop *url.URL) {
 	target, hop = reduceTargetHop(target, hop)
 	h.putOutgoingHop(target, hop)
-	h.serveHop(target)
 }
 
 func (h *HopperServer) BuildNewIncomingHop(target *url.URL, hop *url.URL) {
-	target, newIncomingRoute := reduceTargetHop(target, hop)
-	h.putIncomingHop(target, newIncomingRoute)
+	target, _ = reduceTargetHop(target, hop)
+	h.putIncomingHop(target)
 }
 
-func (h *HopperServer) getIncomingHops() map[string]string {
-	return h.IncomingHopProxy.ProxyReference
+func (h *HopperServer) getIncomingHops() map[string]*url.URL {
+	return h.IncomingHopsReference
 }
 
-func (h *HopperServer) getOutgoingHops() map[string]string {
+func (h *HopperServer) getOutgoingHops() map[string]*url.URL {
 	return h.OutgoingHopsReference
 }
 
