@@ -26,7 +26,7 @@ type HopperServer struct {
 
 func (h *HopperServer) outgoingHopperDirector(req *http.Request) {
 	tempString := strings.SplitAfterN(req.URL.EscapedPath(), "/", 3)
-	targetHost := tempString[1]
+	targetHost := strings.Trim(tempString[1], "/")
 	targetPath := ""
 	if len(tempString) == 3 {
 		targetPath = tempString[2]
@@ -66,17 +66,31 @@ func (h *HopperServer) incomingHopperDirector(req *http.Request) {
 		cancel()
 	}
 	targetHost := req.Header.Get("X-MHP-Target-Host")
+	targetPath := req.Header.Get("X-MHP-Target-Path")
+	targetQuery := req.Header.Get("X-MHP-Target-Query")
+	targetScheme := req.Header.Get("X-MHP-Target-Scheme")
 	if newURL, ok := h.IncomingHopsReference[targetHost]; ok {
 		if newURL.Host == targetHost {
 			req.Header.Set("X-Forwarded-Host", req.Header.Get("X-MHP-Forwarded-Host"))
 		}
 		req.URL = newURL
+		req.URL.Path = targetPath
+		req.URL.RawQuery = targetQuery
+		if targetScheme == "" {
+			targetScheme = "http"
+		}
+		req.URL.Scheme = targetScheme
 		req.Host = newURL.Host
+
+		req.Header.Del("X-MHP-Target-Host")
+		req.Header.Del("X-MHP-Target-Path")
+		req.Header.Del("X-MHP-Target-Query")
+		req.Header.Del("X-MHP-Target-Scheme")
 	}
 }
 
 func (h *HopperServer) serveOutgoingRequest(rProxy *httputil.ReverseProxy, resp http.ResponseWriter, req *http.Request) {
-	targetHost := strings.SplitAfter(req.URL.EscapedPath(), "/")[1]
+	targetHost := strings.Trim(strings.SplitAfter(req.URL.EscapedPath(), "/")[1], "/")
 	if _, ok := h.OutgoingHopsReference[targetHost]; !ok {
 		resp.WriteHeader(http.StatusInternalServerError)
 		resp.Write([]byte("500 - Hop not registered for " + targetHost))

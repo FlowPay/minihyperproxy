@@ -26,7 +26,7 @@ func TestGenerale(t *testing.T) {
 
 	time.Sleep(5 * time.Second)
 
-	resp, err := http.Get("http://localhost:7053/www.google.com")
+	resp, err := http.Get("http://localhost:7053/www.google.com/prova")
 	if err != nil {
 		t.Fatal(err)
 	}
