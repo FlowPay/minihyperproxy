@@ -13,6 +13,7 @@ import (
 )
 
 type HopperServer struct {
+	ServerName            string
 	errorLog              *log.Logger
 	warnLog               *log.Logger
 	infoLog               *log.Logger
@@ -22,6 +23,30 @@ type HopperServer struct {
 	OutgoingHopsReference map[string]*url.URL
 	IncomingHopProxy      *ProxyServer
 	OutgoingHopProxy      *ProxyServer
+	Status                string
+}
+
+func NewHopperServer(serverName string, incomingHopPort string, outgoingHopPort string) *HopperServer {
+	outgoingHopPortInt, _ := strconv.Atoi(outgoingHopPort)
+	incomingHopPortInt, _ := strconv.Atoi(incomingHopPort)
+
+	s := &HopperServer{
+		ServerName:            serverName,
+		infoLog:               log.New(os.Stdout, serverName+"-INFO: ", log.Ldate|log.Ltime|log.Lshortfile),
+		warnLog:               log.New(os.Stdout, serverName+"-WARN: ", log.Ldate|log.Ltime|log.Lshortfile),
+		errorLog:              log.New(os.Stdout, serverName+"-ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
+		outgoingHopPort:       outgoingHopPortInt,
+		incomingHopPort:       incomingHopPortInt,
+		OutgoingHopsReference: make(map[string]*url.URL),
+		IncomingHopsReference: make(map[string]*url.URL),
+		Status:                "Down"}
+
+	s.init(incomingHopPort, outgoingHopPort)
+	return s
+}
+
+func (h *HopperServer) Name() string {
+	return h.ServerName
 }
 
 func (h *HopperServer) outgoingHopperDirector(req *http.Request) {
@@ -108,23 +133,6 @@ func (h *HopperServer) serveIncomingRequest(rProxy *httputil.ReverseProxy, resp 
 	}
 }
 
-func NewHopperServer(serverName string, incomingHopPort string, outgoingHopPort string) *HopperServer {
-	outgoingHopPortInt, _ := strconv.Atoi(outgoingHopPort)
-	incomingHopPortInt, _ := strconv.Atoi(incomingHopPort)
-
-	s := &HopperServer{
-		infoLog:               log.New(os.Stdout, serverName+"-INFO: ", log.Ldate|log.Ltime|log.Lshortfile),
-		warnLog:               log.New(os.Stdout, serverName+"-WARN: ", log.Ldate|log.Ltime|log.Lshortfile),
-		errorLog:              log.New(os.Stdout, serverName+"-ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
-		outgoingHopPort:       outgoingHopPortInt,
-		incomingHopPort:       incomingHopPortInt,
-		OutgoingHopsReference: make(map[string]*url.URL),
-		IncomingHopsReference: make(map[string]*url.URL)}
-
-	s.init(incomingHopPort, outgoingHopPort)
-	return s
-}
-
 func reduceTargetHop(target *url.URL, hop *url.URL) (newTarget *url.URL, newFullRoute *url.URL) {
 
 	newTarget = &url.URL{Host: target.Host, Scheme: target.Scheme}
@@ -141,11 +149,13 @@ func (h *HopperServer) init(incomingHopPort string, outgoingHopPort string) {
 }
 
 func (h *HopperServer) Serve() {
+	h.Status = "Up"
 	h.OutgoingHopProxy.Serve()
 	h.IncomingHopProxy.Serve()
 }
 
 func (h *HopperServer) Stop() {
+	h.Status = "Down"
 	h.OutgoingHopProxy.Stop()
 	h.IncomingHopProxy.Stop()
 }
@@ -170,7 +180,7 @@ func (h *HopperServer) putIncomingHop(target *url.URL) *url.URL {
 	hostname := target.Hostname()
 	h.infoLog.Printf("Creating incoming hop for %v", target)
 	if _, ok := h.OutgoingHopsReference[hostname]; ok {
-		h.IncomingHopsReference[hostname] = &url.URL{Host: "localhost:" + h.OutgoingHopProxy.Port}
+		h.IncomingHopsReference[hostname] = &url.URL{Host: "localhost:" + h.OutgoingHopProxy.ServerPort}
 	} else {
 		h.IncomingHopsReference[hostname] = target
 	}
@@ -200,5 +210,15 @@ func (h *HopperServer) getOutgoingHops() map[string]*url.URL {
 }
 
 func (h *HopperServer) Type() string {
-	return "Hopper Server"
+	return "Hopper"
+}
+
+func (s *HopperServer) Info() *map[string]interface{} {
+	ret := make(map[string]interface{})
+	ret["Name"] = s.ServerName
+	ret["IncomingPort"] = s.incomingHopPort
+	ret["OutgoingPort"] = s.outgoingHopPort
+	ret["Type"] = s.Type()
+	ret["Status"] = s.Status
+	return &ret
 }

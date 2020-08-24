@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/gorilla/mux"
 )
 
 func singleJoiningSlash(a, b string) string {
@@ -24,10 +26,10 @@ func singleJoiningSlash(a, b string) string {
 
 type ProxyServer struct {
 	ServerName     string
-	Port           string
+	ServerPort     string
 	Status         string
 	httpServer     *http.Server
-	httpMux        *http.ServeMux
+	httpMux        *mux.Router
 	infoLog        *log.Logger
 	warnLog        *log.Logger
 	errorLog       *log.Logger
@@ -38,7 +40,7 @@ type ProxyServer struct {
 func NewProxyServer(serverName string, port string) *ProxyServer {
 
 	s := &ProxyServer{ServerName: serverName,
-		Port:           port,
+		ServerPort:     port,
 		infoLog:        log.New(os.Stdout, serverName+"-INFO: ", log.Ldate|log.Ltime|log.Lshortfile),
 		warnLog:        log.New(os.Stdout, serverName+"-WARN: ", log.Ldate|log.Ltime|log.Lshortfile),
 		errorLog:       log.New(os.Stdout, serverName+"-ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
@@ -51,8 +53,8 @@ func NewProxyServer(serverName string, port string) *ProxyServer {
 }
 
 func (s *ProxyServer) init() {
-	s.httpMux = http.NewServeMux()
-	s.httpServer = &http.Server{Addr: ":" + s.Port,
+	s.httpMux = mux.NewRouter().StrictSlash(true)
+	s.httpServer = &http.Server{Addr: ":" + s.ServerPort,
 		Handler: s.httpMux}
 }
 
@@ -66,7 +68,7 @@ func (s *ProxyServer) Serve() {
 			s.errorLog.Printf(err.Error())
 		}
 	}()
-	s.infoLog.Printf("Listening on: " + s.Port)
+	s.infoLog.Printf("Listening on: " + s.ServerPort)
 	s.Status = "Up"
 }
 
@@ -83,7 +85,7 @@ func (s *ProxyServer) StartIncomingHopProxy(director func(*http.Request), serveF
 		serveFunc(rProxy, w, r)
 	}
 	s.ProxyReference["/"] = "incoming_hop_server"
-	s.httpMux.HandleFunc("/", s.ProxyMap["/"])
+	s.httpMux.PathPrefix("/").HandlerFunc(s.ProxyMap["/"])
 }
 func (s *ProxyServer) StartOutgoingHopProxy(director func(*http.Request), serveFunc func(*httputil.ReverseProxy, http.ResponseWriter, *http.Request)) {
 	rProxy := &httputil.ReverseProxy{Director: director}
@@ -91,7 +93,7 @@ func (s *ProxyServer) StartOutgoingHopProxy(director func(*http.Request), serveF
 		serveFunc(rProxy, w, r)
 	}
 	s.ProxyReference["/"] = "incoming_hop_server"
-	s.httpMux.HandleFunc("/", s.ProxyMap["/"])
+	s.httpMux.PathPrefix("/").HandlerFunc(s.ProxyMap["/"])
 }
 
 func (s *ProxyServer) NewProxy(route *url.URL, target *url.URL) {
@@ -134,7 +136,16 @@ func (s *ProxyServer) DeleteProxy(route *url.URL) {
 }
 
 func (s *ProxyServer) Type() string {
-	return "ProxyServer"
+	return "Proxy"
+}
+
+func (s *ProxyServer) Info() *map[string]interface{} {
+	ret := make(map[string]interface{})
+	ret["Name"] = s.ServerName
+	ret["Port"] = s.ServerPort
+	ret["Type"] = s.Type()
+	ret["Status"] = s.Status
+	return &ret
 }
 
 func (s *ProxyServer) getProxyMap() map[string]string {
