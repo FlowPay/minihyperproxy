@@ -119,11 +119,33 @@ func getOutgoingHops(resp http.ResponseWriter, req *http.Request, m *MinihyperPr
 }
 
 func createIncomingHop(resp http.ResponseWriter, req *http.Request, m *MinihyperProxy) {
+	vars := mux.Vars(req)
 
+	serverName := vars["Name"]
+	route := vars["Route"]
+	target := vars["Target"]
+
+	routeURL, _ := url.Parse(route)
+	targetURL, _ := url.Parse(target)
+
+	m.ReceiveHop(serverName, routeURL, targetURL)
+
+	resp.Write([]byte{})
 }
 
 func createOutgoingHop(resp http.ResponseWriter, req *http.Request, m *MinihyperProxy) {
+	vars := mux.Vars(req)
 
+	serverName := vars["Name"]
+	route := vars["Route"]
+	target := vars["Target"]
+
+	routeURL, _ := url.Parse(route)
+	targetURL, _ := url.Parse(target)
+
+	m.AddHop(serverName, routeURL, targetURL)
+
+	resp.Write([]byte{})
 }
 
 func buildAPI(m *MinihyperProxy) *mux.Router {
