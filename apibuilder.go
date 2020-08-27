@@ -13,21 +13,21 @@ import (
 )
 
 func throwError(resp http.ResponseWriter, m *MinihyperProxy, httpErr *HttpError) {
-	m.ErrorLog.Printf(httpErr.err.Error())
+	m.ErrorLog.Printf(httpErr.Error())
 	resp.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	resp.WriteHeader(httpErr.code)
-	if err := json.NewEncoder(resp).Encode(httpErr.err.Error); err != nil {
+	if err := json.NewEncoder(resp).Encode(httpErr); err != nil {
 		panic(err)
 	}
 }
 
-func unmarshalBody(resp http.ResponseWriter, req *http.Request, target interface{}, m *MinihyperProxy) (err error) {
+func unmarshalBody(resp http.ResponseWriter, req *http.Request, target interface{}, m *MinihyperProxy) (httpErr *HttpError) {
 	bodyBytes, err := ioutil.ReadAll(io.LimitReader(req.Body, 1048576))
 	if err != nil {
-		throwError(resp, m, RequestUnmarshallError)
+		httpErr = RequestUnmarshallError
 	}
 	if err = json.Unmarshal(bodyBytes, target); err != nil {
-		throwError(resp, m, BodyUnmarshallError)
+		httpErr = BodyUnmarshallError
 	}
 	return
 }
@@ -90,16 +90,23 @@ func getProxyMap(resp http.ResponseWriter, req *http.Request, m *MinihyperProxy)
 
 func createProxy(resp http.ResponseWriter, req *http.Request, m *MinihyperProxy) {
 	var createProxyRequest CreateProxyRequest
-	if err := unmarshalBody(resp, req, &createProxyRequest, m); err == nil {
-		if createProxyRequest.Name == "" {
-			throwError(resp, m, EmptyFieldError)
-		} else if name, err := m.startProxyServer(createProxyRequest.Name); err == nil {
+	var httpErr *HttpError
+	var name string
+
+	httpErr = unmarshalBody(resp, req, &createProxyRequest, m)
+
+	if httpErr == nil {
+		name, httpErr = m.startProxyServer(createProxyRequest.Name)
+		if httpErr == nil {
 			response := CreateProxyResponse{Name: createProxyRequest.Name, Port: name}
 			json.NewEncoder(resp).Encode(response)
-		} else {
-			throwError(resp, m, err)
 		}
 	}
+
+	if httpErr != nil {
+		throwError(resp, m, httpErr)
+	}
+
 }
 
 func createRoute(resp http.ResponseWriter, req *http.Request, m *MinihyperProxy) {

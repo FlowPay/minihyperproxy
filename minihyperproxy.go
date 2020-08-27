@@ -120,6 +120,10 @@ func (m *MinihyperProxy) startHopperServer(serverName string) (incomingPort, out
 
 func (m *MinihyperProxy) startProxyServer(serverName string) (proxyPort string, err *HttpError) {
 
+	if serverName == "" {
+		return "", EmptyFieldError
+	}
+
 	if _, ok := m.Servers[serverName]; ok {
 		return "", ServerAlreadyExistsError
 	}
