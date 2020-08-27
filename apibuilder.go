@@ -12,7 +12,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func throwError(resp http.ResponseWriter, m *MinihyperProxy, httpErr HttpError) {
+func throwError(resp http.ResponseWriter, m *MinihyperProxy, httpErr *HttpError) {
 	m.ErrorLog.Printf(httpErr.err.Error())
 	resp.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	resp.WriteHeader(httpErr.code)
@@ -97,7 +97,7 @@ func createProxy(resp http.ResponseWriter, req *http.Request, m *MinihyperProxy)
 			response := CreateProxyResponse{Name: createProxyRequest.Name, Port: name}
 			json.NewEncoder(resp).Encode(response)
 		} else {
-			throwError(resp, m, ServerAlreadyExists)
+			throwError(resp, m, err)
 		}
 	}
 }

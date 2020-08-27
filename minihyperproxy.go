@@ -1,7 +1,6 @@
 package minihyperproxy
 
 import (
-	"errors"
 	"log"
 	"net/url"
 	"os"
@@ -119,10 +118,10 @@ func (m *MinihyperProxy) startHopperServer(serverName string) (incomingPort, out
 	return m.latestHopperServerIncoming, m.latestHopperServerOutgoing
 }
 
-func (m *MinihyperProxy) startProxyServer(serverName string) (proxyPort string, err error) {
+func (m *MinihyperProxy) startProxyServer(serverName string) (proxyPort string, err *HttpError) {
 
 	if _, ok := m.Servers[serverName]; ok {
-		return "", errors.New("Server already exists")
+		return "", ServerAlreadyExistsError
 	}
 
 	m.latestProxyServer = m.getFreeServerAndIncrement("PROXY_SERVER", "7053")
