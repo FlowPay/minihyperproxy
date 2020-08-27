@@ -12,11 +12,11 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func throwError(resp http.ResponseWriter, m *MinihyperProxy, err error, code int, message string) {
-	m.ErrorLog.Printf(message)
+func throwError(resp http.ResponseWriter, m *MinihyperProxy, httpErr HttpError) {
+	m.ErrorLog.Printf(httpErr.err.Error())
 	resp.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	resp.WriteHeader(code)
-	if err := json.NewEncoder(resp).Encode(message); err != nil {
+	resp.WriteHeader(httpErr.code)
+	if err := json.NewEncoder(resp).Encode(httpErr.err.Error); err != nil {
 		panic(err)
 	}
 }
@@ -24,10 +24,10 @@ func throwError(resp http.ResponseWriter, m *MinihyperProxy, err error, code int
 func unmarshalBody(resp http.ResponseWriter, req *http.Request, target interface{}, m *MinihyperProxy) (err error) {
 	bodyBytes, err := ioutil.ReadAll(io.LimitReader(req.Body, 1048576))
 	if err != nil {
-		throwError(resp, m, err, 422, "Error unmarshalling request")
+		throwError(resp, m, RequestUnmarshallError)
 	}
 	if err = json.Unmarshal(bodyBytes, target); err != nil {
-		throwError(resp, m, err, 422, "Error unmarshalling body")
+		throwError(resp, m, BodyUnmarshallError)
 	}
 	return
 }
@@ -92,12 +92,12 @@ func createProxy(resp http.ResponseWriter, req *http.Request, m *MinihyperProxy)
 	var createProxyRequest CreateProxyRequest
 	if err := unmarshalBody(resp, req, &createProxyRequest, m); err == nil {
 		if createProxyRequest.Name == "" {
-			throwError(resp, m, err, 422, "Field Name cannot be empty")
+			throwError(resp, m, EmptyFieldError)
 		} else if name, err := m.startProxyServer(createProxyRequest.Name); err == nil {
 			response := CreateProxyResponse{Name: createProxyRequest.Name, Port: name}
 			json.NewEncoder(resp).Encode(response)
 		} else {
-			throwError(resp, m, err, 500, err.Error())
+			throwError(resp, m, ServerAlreadyExists)
 		}
 	}
 }
