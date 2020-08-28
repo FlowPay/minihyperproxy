@@ -125,9 +125,8 @@ func getServer(resp http.ResponseWriter, req *http.Request, m *MinihyperProxy, h
 }
 
 func getServer2(getServerRequest interface{}, m *MinihyperProxy) (response interface{}, httpErr *HttpError) {
-	var serverInfo ServerInfo
 	if obj, ok := getServerRequest.(GetServerRequest); ok {
-		if serverInfo, httpErr = m.GetServerInfo(obj.Name); httpErr == nil {
+		if serverInfo, httpErr := m.GetServerInfo(obj.Name); httpErr == nil {
 			response = ListServersResponse{Info: []ServerInfo{serverInfo}}
 		}
 	} else {
