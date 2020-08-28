@@ -16,6 +16,9 @@ type ListServersResponse struct {
 	Info []ServerInfo `json:"Info"`
 }
 
+type EmptyRequest struct {
+}
+
 type ProxyMapResponse struct {
 	ProxyMap map[string]string `json:"ProxyMap"`
 }
