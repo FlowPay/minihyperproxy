@@ -14,6 +14,7 @@ import (
 
 type HopperServer struct {
 	ServerName            string
+	Hostname              string
 	errorLog              *log.Logger
 	warnLog               *log.Logger
 	infoLog               *log.Logger
@@ -26,12 +27,13 @@ type HopperServer struct {
 	Status                string
 }
 
-func NewHopperServer(serverName string, incomingHopPort string, outgoingHopPort string) *HopperServer {
+func NewHopperServer(serverName string, hostname string, incomingHopPort string, outgoingHopPort string) *HopperServer {
 	outgoingHopPortInt, _ := strconv.Atoi(outgoingHopPort)
 	incomingHopPortInt, _ := strconv.Atoi(incomingHopPort)
 
 	s := &HopperServer{
 		ServerName:            serverName,
+		Hostname:              hostname,
 		infoLog:               log.New(os.Stdout, serverName+"-INFO: ", log.Ldate|log.Ltime|log.Lshortfile),
 		warnLog:               log.New(os.Stdout, serverName+"-WARN: ", log.Ldate|log.Ltime|log.Lshortfile),
 		errorLog:              log.New(os.Stdout, serverName+"-ERROR: ", log.Ldate|log.Ltime|log.Lshortfile),
@@ -41,7 +43,7 @@ func NewHopperServer(serverName string, incomingHopPort string, outgoingHopPort 
 		IncomingHopsReference: make(map[string]*url.URL),
 		Status:                "Down"}
 
-	s.init(incomingHopPort, outgoingHopPort)
+	s.init(hostname, incomingHopPort, outgoingHopPort)
 	return s
 }
 
@@ -140,10 +142,10 @@ func reduceTargetHop(target *url.URL, hop *url.URL) (newTarget *url.URL, newFull
 	return
 }
 
-func (h *HopperServer) init(incomingHopPort string, outgoingHopPort string) {
+func (h *HopperServer) init(hostname string, incomingHopPort string, outgoingHopPort string) {
 
-	h.IncomingHopProxy = NewProxyServer("IncomingHopProxy: "+incomingHopPort, incomingHopPort)
-	h.OutgoingHopProxy = NewProxyServer("OutgoingHopProxy: "+outgoingHopPort, outgoingHopPort)
+	h.IncomingHopProxy = NewProxyServer("IncomingHopProxy: "+hostname+":"+incomingHopPort, hostname, incomingHopPort)
+	h.OutgoingHopProxy = NewProxyServer("OutgoingHopProxy: "+hostname+":"+outgoingHopPort, hostname, outgoingHopPort)
 	h.IncomingHopProxy.StartIncomingHopProxy(h.incomingHopperDirector, h.serveIncomingRequest)
 	h.OutgoingHopProxy.StartOutgoingHopProxy(h.outgoingHopperDirector, h.serveOutgoingRequest)
 }

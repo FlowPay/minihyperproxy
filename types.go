@@ -21,22 +21,46 @@ type GetServerRequest struct {
 	Name string `json:"Name"`
 }
 type CreateProxyRequest struct {
-	Name string `json:"Name"`
+	Name     string `json:"Name"`
+	Hostname string `json:"Hostname"`
 }
 
 type CreateProxyResponse struct {
-	Name string `json:"Name"`
-	Port string `json:"Port"`
+	Name     string `json:"Name"`
+	Hostname string `json:"Hostname"`
+	Port     string `json:"Port"`
 }
 
+type CreateRouteRequest struct {
+	Name   string `json:"Name"`
+	Route  string `json:"Route"`
+	Target string `json:"Target"`
+}
+
+type CreateRouteResponse CreateRouteRequest
+
 type CreateHopperRequest struct {
-	Name string `json:"Name"`
+	Name     string `json:"Name"`
+	Hostname string `json:"Hostname"`
 }
 
 type CreateHopperResponse struct {
 	Name         string `json:"Name"`
+	Hostname     string `json:"Hostname"`
 	IncomingPort string `json:"IncomingPort"`
 	OutgoingPort string `json:"OutgoingPort"`
+}
+
+type CreateIncomingHopRequest struct {
+	Name   string `json:"Name"`
+	Route  string `json:"Route"`
+	Target string `json:"Target"`
+}
+
+type CreateOutgoingHopRequest struct {
+	Name   string `json:"Name"`
+	Route  string `json:"Route"`
+	Target string `json:"Target"`
 }
 
 type GetHopsRequest struct {

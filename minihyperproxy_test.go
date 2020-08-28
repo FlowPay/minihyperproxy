@@ -16,8 +16,8 @@ func TestGenerale(t *testing.T) {
 
 	m := NewMinihyperProxy()
 
-	m.startHopperServer("prova")
-	m.startHopperServer("prova2")
+	m.startHopperServer("prova", "")
+	m.startHopperServer("prova2", "")
 	m.AddHop("prova", &url.URL{Host: "www.google.com", Scheme: "http"}, &url.URL{Host: "localhost:7055", Scheme: "http"})
 	m.ReceiveHop("prova2", &url.URL{Host: "www.google.com", Scheme: "http"}, &url.URL{Host: "localhost:7055", Scheme: "http"})
 	//target, err := url.Parse("https://google.com/")

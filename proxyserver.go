@@ -26,6 +26,7 @@ func singleJoiningSlash(a, b string) string {
 
 type ProxyServer struct {
 	ServerName     string
+	Hostname       string
 	ServerPort     string
 	Status         string
 	httpServer     *http.Server
@@ -37,9 +38,10 @@ type ProxyServer struct {
 	ProxyMap       map[string]func(w http.ResponseWriter, r *http.Request)
 }
 
-func NewProxyServer(serverName string, port string) *ProxyServer {
+func NewProxyServer(serverName string, hostname string, port string) *ProxyServer {
 
 	s := &ProxyServer{ServerName: serverName,
+		Hostname:       hostname,
 		ServerPort:     port,
 		infoLog:        log.New(os.Stdout, serverName+"-INFO: ", log.Ldate|log.Ltime|log.Lshortfile),
 		warnLog:        log.New(os.Stdout, serverName+"-WARN: ", log.Ldate|log.Ltime|log.Lshortfile),
@@ -54,7 +56,7 @@ func NewProxyServer(serverName string, port string) *ProxyServer {
 
 func (s *ProxyServer) init() {
 	s.httpMux = mux.NewRouter().StrictSlash(true)
-	s.httpServer = &http.Server{Addr: ":" + s.ServerPort,
+	s.httpServer = &http.Server{Addr: s.Hostname + ":" + s.ServerPort,
 		Handler: s.httpMux}
 }
 

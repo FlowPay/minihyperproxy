@@ -16,6 +16,7 @@ type MinihyperProxy struct {
 	latestProxyServer          string
 	latestServer               string
 	Servers                    map[string]*Server
+	ServersNameReference       map[string]bool
 }
 
 func NewMinihyperProxy() (m *MinihyperProxy) {
@@ -33,7 +34,7 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func (m *MinihyperProxy) getFreeServerAndIncrement(referenceEnv string, referenceDefault string) string {
+func (m *MinihyperProxy) getFreeServerAndIncrement(referenceEnv string, referenceDefault string, increment bool) string {
 	var tempServer int
 	if m.latestServer != "" {
 		tempServer, _ = strconv.Atoi(m.latestServer)
@@ -42,32 +43,37 @@ func (m *MinihyperProxy) getFreeServerAndIncrement(referenceEnv string, referenc
 		tempServer, _ = strconv.Atoi(getEnv(referenceEnv, referenceDefault))
 	}
 	serverPort := strconv.Itoa(tempServer)
-	m.latestServer = serverPort
+
+	if increment {
+		m.latestServer = serverPort
+	}
 	return serverPort
 }
 
-func (m *MinihyperProxy) AddHop(serverName string, target *url.URL, hop *url.URL) {
+func (m *MinihyperProxy) AddHop(serverName string, target *url.URL, hop *url.URL) (httpErr *HttpError) {
 	if s, ok := m.Servers[serverName]; ok {
 		if hopperServer, ok := (*s).(*HopperServer); ok {
 			hopperServer.BuildNewOutgoingHop(target, hop)
 		} else {
-			m.ErrorLog.Printf("Server %s is not of the right type", serverName)
+			httpErr = WrongServerTypeError
 		}
 	} else {
-		m.ErrorLog.Printf("Server %s doesn't exist", serverName)
+		httpErr = NoServerFoundError
 	}
+	return
 }
 
-func (m *MinihyperProxy) ReceiveHop(serverName string, target *url.URL, hop *url.URL) {
+func (m *MinihyperProxy) ReceiveHop(serverName string, target *url.URL, hop *url.URL) (httpErr *HttpError) {
 	if s, ok := m.Servers[serverName]; ok {
 		if hopperServer, ok := (*s).(*HopperServer); ok {
 			hopperServer.BuildNewIncomingHop(target, hop)
 		} else {
-			m.ErrorLog.Printf("Server %s is not of the right type", serverName)
+			httpErr = WrongServerTypeError
 		}
 	} else {
-		m.ErrorLog.Printf("Server %s doesn't exist", serverName)
+		httpErr = NoServerFoundError
 	}
+	return
 }
 
 func (m *MinihyperProxy) GetOutgoingHops(serverName string) (hops map[string]*url.URL, httpErr *HttpError) {
@@ -109,59 +115,88 @@ func (m *MinihyperProxy) GetProxyMap(serverName string) (proxyMap map[string]str
 	return
 }
 
-func (m *MinihyperProxy) startHopperServer(serverName string) (incomingPort, outgoingPort string, httpErr *HttpError) {
-	if serverName == "" {
-		httpErr = EmptyFieldError
-	}
-
-	if _, ok := m.Servers[serverName]; ok {
-		httpErr = ServerAlreadyExistsError
-	}
-
-	if httpErr != nil {
-		m.latestHopperServerIncoming = m.getFreeServerAndIncrement("HOPPER_SERVER_INCOMING", "7053")
-		m.latestHopperServerOutgoing = m.getFreeServerAndIncrement("HOPPER_SERVER_OUTGOING", "7054")
-		tempServer := Server(NewHopperServer(serverName, m.latestHopperServerIncoming, m.latestHopperServerOutgoing))
-		m.Servers[serverName] = &tempServer
-		(*m.Servers[serverName]).Serve()
-
-		incomingPort = m.latestHopperServerIncoming
-		outgoingPort = m.latestHopperServerOutgoing
-	}
-	return
-}
-
-func (m *MinihyperProxy) startProxyServer(serverName string) (proxyPort string, httpErr *HttpError) {
+func (m *MinihyperProxy) startHopperServer(serverName string, hostname string) (incomingPort, outgoingPort, finalHostname string, httpErr *HttpError) {
 
 	if serverName == "" {
 		httpErr = EmptyFieldError
 	}
 
 	if _, ok := m.Servers[serverName]; ok {
-		httpErr = ServerAlreadyExistsError
+		httpErr = ServerNameAlreadyExistsError
 	}
 
-	if httpErr != nil {
-		m.latestProxyServer = m.getFreeServerAndIncrement("PROXY_SERVER", "7053")
-		tempServer := Server(NewProxyServer(serverName, m.latestProxyServer))
+	if hostname == "" {
+		hostname = "localhost"
+	}
 
-		m.Servers[serverName] = &tempServer
-		(*m.Servers[serverName]).Serve()
-		proxyPort = m.latestProxyServer
+	if httpErr == nil {
+		incomingPort = m.getFreeServerAndIncrement("HOPPER_SERVER_INCOMING", "7053", false)
+		outgoingPort = m.getFreeServerAndIncrement("HOPPER_SERVER_OUTGOING", "7054", false)
+
+		fullIncomingServerName := hostname + ":" + incomingPort
+		fullOutgoingServerName := hostname + ":" + outgoingPort
+
+		if m.ServersNameReference[fullIncomingServerName] || m.ServersNameReference[fullOutgoingServerName] {
+			httpErr = ServerHostnamePortTakenError
+		} else {
+			finalHostname = hostname
+			m.getFreeServerAndIncrement("HOPPER_SERVER_INCOMING", "7053", true)
+			m.getFreeServerAndIncrement("HOPPER_SERVER_OUTGOING", "7054", true)
+			m.latestHopperServerIncoming = incomingPort
+			m.latestHopperServerOutgoing = outgoingPort
+			tempServer := Server(NewHopperServer(serverName, hostname, m.latestHopperServerIncoming, m.latestHopperServerOutgoing))
+			m.Servers[serverName] = &tempServer
+			(*m.Servers[serverName]).Serve()
+
+		}
 	}
 	return
 }
 
-func (m *MinihyperProxy) addProxyRedirect(serverName string, path *url.URL, target *url.URL) {
+func (m *MinihyperProxy) startProxyServer(serverName string, hostname string) (proxyPort, finalHostname string, httpErr *HttpError) {
+
+	if serverName == "" {
+		httpErr = EmptyFieldError
+	}
+
+	if _, ok := m.Servers[serverName]; ok {
+		httpErr = ServerNameAlreadyExistsError
+	}
+
+	if hostname == "" {
+		hostname = "localhost"
+	}
+
+	if httpErr == nil {
+		proxyPort = m.getFreeServerAndIncrement("PROXY_SERVER", "7053", false)
+		fullServerName := hostname + ":" + proxyPort
+
+		if m.ServersNameReference[fullServerName] {
+			httpErr = ServerHostnamePortTakenError
+		} else {
+			finalHostname = hostname
+			m.getFreeServerAndIncrement("PROXY_SERVER", "7053", true)
+			m.latestProxyServer = proxyPort
+			tempServer := Server(NewProxyServer(serverName, hostname, m.latestProxyServer))
+
+			m.Servers[serverName] = &tempServer
+			(*m.Servers[serverName]).Serve()
+		}
+	}
+	return
+}
+
+func (m *MinihyperProxy) addProxyRedirect(serverName string, path *url.URL, target *url.URL) (httpErr *HttpError) {
 	if s, ok := m.Servers[serverName]; ok {
 		if proxyServer, ok := (*s).(*ProxyServer); ok {
 			proxyServer.NewProxy(&url.URL{Path: path.EscapedPath()}, target)
 		} else {
-			m.ErrorLog.Printf("Server %s is not of the right type", serverName)
+			httpErr = WrongServerTypeError
 		}
 	} else {
-		m.ErrorLog.Printf("Server %s doesn't exist", serverName)
+		httpErr = NoServerFoundError
 	}
+	return
 }
 
 func (m *MinihyperProxy) stopServer(serverName string) {
