@@ -2,6 +2,8 @@ package minihyperproxy
 
 import "net/url"
 
+type RouteFunction func(interface{}, *MinihyperProxy) (reponse interface{}, httpErr *HttpError)
+
 type ServerInfo *map[string]interface{}
 
 type ProxyInfo struct {

@@ -87,7 +87,7 @@ func buildRoute(m *MinihyperProxy, target func(http.ResponseWriter, *http.Reques
 	}
 }
 
-func buildRoute2(m *MinihyperProxy, referenceObject interface{}, target func(interface{}, *MinihyperProxy) (reponse interface{}, httpErr **HttpError)) func(http.ResponseWriter, *http.Request) {
+func buildRoute2(m *MinihyperProxy, referenceObject interface{}, target RouteFunction) func(http.ResponseWriter, *http.Request) {
 	return func(resp http.ResponseWriter, req *http.Request) {
 		var httpErr *HttpError
 		var object interface{}
@@ -96,10 +96,8 @@ func buildRoute2(m *MinihyperProxy, referenceObject interface{}, target func(int
 		resp.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
 		if httpErr = unmarshalBody(resp, req, &object, m); httpErr == nil {
-			if httpErr = validateBody(object, referenceObject); httpErr == nil {
-				if response, httpErr := target(object, m); httpErr == nil {
-					json.NewEncoder(resp).Encode(response)
-				}
+			if response, httpErr := target(object, m); httpErr == nil {
+				json.NewEncoder(resp).Encode(response)
 			}
 		}
 	}
@@ -126,11 +124,14 @@ func getServer(resp http.ResponseWriter, req *http.Request, m *MinihyperProxy, h
 	return
 }
 
-func getServer2(getServerRequest interface{}, m *MinihyperProxy) (response interface{}, httpErr **HttpError) {
-
+func getServer2(getServerRequest interface{}, m *MinihyperProxy) (response interface{}, httpErr *HttpError) {
 	var serverInfo ServerInfo
-	if serverInfo, *httpErr = m.GetServerInfo(getServerRequest.Name); *httpErr == nil {
-		response = ListServersResponse{Info: []ServerInfo{serverInfo}}
+	if obj, ok := getServerRequest.(GetServerRequest); ok {
+		if serverInfo, httpErr = m.GetServerInfo(obj.Name); httpErr == nil {
+			response = ListServersResponse{Info: []ServerInfo{serverInfo}}
+		}
+	} else {
+		httpErr = InvalidBodyError
 	}
 	return
 }
